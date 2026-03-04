@@ -7,12 +7,26 @@ import { PageThumbnail } from './PageThumbnail';
 interface SortablePageProps {
   page: PageItem;
   file?: PDFFile;
+  isSelected?: boolean;
+  onToggleSelection?: (id: string) => void;
   onRotate: (id: string) => void;
   onRemove: (id: string) => void;
   onDuplicate: (id: string) => void;
+  onInsertBlankPage: (id: string) => void;
+  onInsertFile: (id: string) => void;
 }
 
-export const SortablePage: React.FC<SortablePageProps> = ({ page, file, onRotate, onRemove, onDuplicate }) => {
+export const SortablePage: React.FC<SortablePageProps> = ({ 
+  page, 
+  file, 
+  isSelected,
+  onToggleSelection,
+  onRotate, 
+  onRemove, 
+  onDuplicate, 
+  onInsertBlankPage, 
+  onInsertFile 
+}) => {
   const {
     attributes,
     listeners,
@@ -35,9 +49,13 @@ export const SortablePage: React.FC<SortablePageProps> = ({ page, file, onRotate
       page={page}
       file={file}
       isDragging={isDragging}
+      isSelected={isSelected}
+      onToggleSelection={onToggleSelection}
       onRotate={onRotate}
       onRemove={onRemove}
       onDuplicate={onDuplicate}
+      onInsertBlankPage={onInsertBlankPage}
+      onInsertFile={onInsertFile}
       dragHandleProps={{ ...attributes, ...listeners }}
     />
   );

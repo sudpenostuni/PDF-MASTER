@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { 
   DndContext, 
@@ -19,13 +19,12 @@ import {
 } from '@dnd-kit/sortable';
 import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, FileUp, Download, FilePlus, Trash, Scissors } from 'lucide-react';
+import { Plus, FileUp, Download, FilePlus, Trash, Columns } from 'lucide-react';
 
 import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
-import { InsertPageModal } from '@/components/InsertPageModal';
 import { SplitPageModal } from '@/components/SplitPageModal';
 import { cn } from '@/lib/utils';
 import { SplitConfig } from '@/lib/pdf-utils';
@@ -36,10 +35,12 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 export default function PDFEditor() {
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [pages, setPages] = useState<PageItem[]>([]);
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [isInsertModalOpen, setIsInsertModalOpen] = useState(false);
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [mergedPdfForSplit, setMergedPdfForSplit] = useState<Uint8Array | null>(null);
+  const [insertAfterId, setInsertAfterId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Popup State
   const [popupState, setPopupState] = useState<{
@@ -103,8 +104,10 @@ export default function PDFEditor() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] } as any, // Cast to any to avoid strict type check issues with DropzoneOptions
-  });
+    accept: { 'application/pdf': ['.pdf'] } as any,
+    noClick: pages.length > 0, // Disable click to upload when pages exist
+    noDrag: pages.length > 0, // Disable drag to upload when pages exist
+  } as any);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -135,6 +138,11 @@ export default function PDFEditor() {
 
   const handleRemove = (id: string) => {
     setPages(items => items.filter(item => item.id !== id));
+    setSelectedPages(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(id);
+      return newSet;
+    });
   };
 
   const handleDuplicate = (id: string) => {
@@ -154,11 +162,10 @@ export default function PDFEditor() {
     ]);
   };
 
-  const handleAddBlankPage = () => {
-    setIsInsertModalOpen(true);
-  };
+  const handleInsertBlankPage = (id: string) => {
+    const index = pages.findIndex(p => p.id === id);
+    if (index === -1) return;
 
-  const confirmAddBlankPage = (position: number) => {
     const newPage: PageItem = {
       id: uuidv4(),
       fileId: 'blank',
@@ -167,20 +174,96 @@ export default function PDFEditor() {
       isBlank: true,
     };
 
-    // Position is 1-based, so subtract 1 for index
-    const insertIndex = Math.max(0, Math.min(pages.length, position - 1));
-
     setPages(items => [
-      ...items.slice(0, insertIndex),
+      ...items.slice(0, index + 1),
       newPage,
-      ...items.slice(insertIndex)
+      ...items.slice(index + 1)
     ]);
+  };
+
+  const handleInsertFile = (id: string) => {
+    setInsertAfterId(id);
+    fileInputRef.current?.click();
+  };
+
+  const handleToggleSelection = (id: string) => {
+    setSelectedPages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+    
+    // If no insertAfterId, just append (fallback)
+    const targetIndex = insertAfterId ? pages.findIndex(p => p.id === insertAfterId) : pages.length - 1;
+    
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Loading files...',
+    });
+
+    try {
+      const newFiles: PDFFile[] = [];
+      const newPages: PageItem[] = [];
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        if (file.type !== 'application/pdf') continue;
+
+        const pdfFile = await loadPDF(file);
+        newFiles.push(pdfFile);
+
+        for (let j = 0; j < pdfFile.pageCount; j++) {
+          newPages.push({
+            id: uuidv4(),
+            fileId: pdfFile.id,
+            pageIndex: j,
+            rotation: 0,
+          });
+        }
+      }
+
+      setFiles(prev => [...prev, ...newFiles]);
+      
+      // Insert new pages after the target page
+      setPages(prev => [
+        ...prev.slice(0, targetIndex + 1),
+        ...newPages,
+        ...prev.slice(targetIndex + 1)
+      ]);
+
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: `Added ${newPages.length} pages.`,
+      });
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Failed to load files.',
+      });
+    } finally {
+      setInsertAfterId(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleClearAll = () => {
     if (confirm('Are you sure you want to clear all pages?')) {
       setFiles([]);
       setPages([]);
+      setSelectedPages(new Set());
     }
   };
 
@@ -194,7 +277,11 @@ export default function PDFEditor() {
     });
 
     try {
-      const mergedPdfBytes = await generateMergedPDF(files, pages);
+      const pagesToExport = selectedPages.size > 0 
+        ? pages.filter(p => selectedPages.has(p.id))
+        : pages;
+
+      const mergedPdfBytes = await generateMergedPDF(files, pagesToExport);
       
       // Create blob and download
       const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
@@ -276,6 +363,7 @@ export default function PDFEditor() {
 
       setFiles([newFile]);
       setPages(newPages);
+      setSelectedPages(new Set());
       setMergedPdfForSplit(null);
 
       setPopupState({
@@ -321,15 +409,8 @@ export default function PDFEditor() {
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               title="Split all pages into two vertical halves"
             >
-              <Scissors className="w-4 h-4" />
+              <Columns className="w-4 h-4" />
               <span className="hidden sm:inline">Split Pages</span>
-            </button>
-            <button
-              onClick={handleAddBlankPage}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm"
-            >
-              <FilePlus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add Blank Page</span>
             </button>
             <button
               onClick={handleDownload}
@@ -337,7 +418,9 @@ export default function PDFEditor() {
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="w-4 h-4" />
-              <span>Export PDF</span>
+              <span>
+                {selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : 'Export PDF'}
+              </span>
             </button>
           </div>
         </div>
@@ -374,21 +457,6 @@ export default function PDFEditor() {
           </div>
         ) : (
           <div className="space-y-8">
-            {/* Toolbar / Dropzone Mini */}
-            <div 
-              {...getRootProps()} 
-              className={cn(
-                "border-2 border-dashed rounded-xl p-6 flex items-center justify-center gap-4 cursor-pointer transition-colors",
-                isDragActive ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-indigo-300 bg-white"
-              )}
-            >
-              <input {...getInputProps()} />
-              <Plus className="w-5 h-5 text-slate-400" />
-              <span className="text-sm font-medium text-slate-600">
-                Drag more files here or click to add
-              </span>
-            </div>
-
             {/* Grid */}
             <DndContext
               sensors={sensors}
@@ -403,9 +471,13 @@ export default function PDFEditor() {
                       key={page.id}
                       page={page}
                       file={files.find(f => f.id === page.fileId)}
+                      isSelected={selectedPages.has(page.id)}
+                      onToggleSelection={handleToggleSelection}
                       onRotate={handleRotate}
                       onRemove={handleRemove}
                       onDuplicate={handleDuplicate}
+                      onInsertBlankPage={handleInsertBlankPage}
+                      onInsertFile={handleInsertFile}
                     />
                   ))}
                 </div>
@@ -434,18 +506,21 @@ export default function PDFEditor() {
         onClose={() => setPopupState(prev => ({ ...prev, isOpen: false }))}
       />
 
-      <InsertPageModal
-        isOpen={isInsertModalOpen}
-        onClose={() => setIsInsertModalOpen(false)}
-        onConfirm={confirmAddBlankPage}
-        maxPages={pages.length}
-      />
-
       <SplitPageModal
         isOpen={isSplitModalOpen}
         onClose={() => setIsSplitModalOpen(false)}
         onConfirm={confirmSplitPages}
         pdfBytes={mergedPdfForSplit}
+      />
+
+      {/* Hidden File Input for "Insert File" action */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileInputChange}
+        accept=".pdf"
+        multiple
+        className="hidden"
       />
     </div>
   );
