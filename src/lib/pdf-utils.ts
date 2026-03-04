@@ -49,7 +49,19 @@ export async function loadPDFFromBytes(data: ArrayBuffer, name: string): Promise
   };
 }
 
-export async function splitPDFPages(pdfBytes: Uint8Array): Promise<Uint8Array> {
+export interface NormalizedRect {
+  x: number; // 0-1
+  y: number; // 0-1
+  width: number; // 0-1
+  height: number; // 0-1
+}
+
+export interface SplitConfig {
+  rect1: NormalizedRect;
+  rect2: NormalizedRect;
+}
+
+export async function splitPDFPages(pdfBytes: Uint8Array, config?: SplitConfig): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const newPdfDoc = await PDFDocument.create();
   
@@ -57,18 +69,40 @@ export async function splitPDFPages(pdfBytes: Uint8Array): Promise<Uint8Array> {
   
   for (let i = 0; i < pageCount; i++) {
     // We need to copy the page twice to split it
-    const [pageLeft] = await newPdfDoc.copyPages(pdfDoc, [i]);
-    const [pageRight] = await newPdfDoc.copyPages(pdfDoc, [i]);
+    const [page1] = await newPdfDoc.copyPages(pdfDoc, [i]);
+    const [page2] = await newPdfDoc.copyPages(pdfDoc, [i]);
     
-    const { width, height } = pageLeft.getSize();
+    const { width, height } = page1.getSize();
     
-    // Left Page (0 to width/2)
-    pageLeft.setCropBox(0, 0, width / 2, height);
-    newPdfDoc.addPage(pageLeft);
-    
-    // Right Page (width/2 to width)
-    pageRight.setCropBox(width / 2, 0, width / 2, height);
-    newPdfDoc.addPage(pageRight);
+    if (config) {
+      // Manual Split
+      // Rect 1
+      page1.setCropBox(
+        config.rect1.x * width,
+        config.rect1.y * height,
+        config.rect1.width * width,
+        config.rect1.height * height
+      );
+      newPdfDoc.addPage(page1);
+
+      // Rect 2
+      page2.setCropBox(
+        config.rect2.x * width,
+        config.rect2.y * height,
+        config.rect2.width * width,
+        config.rect2.height * height
+      );
+      newPdfDoc.addPage(page2);
+    } else {
+      // Auto Split (Vertical Half)
+      // Left Page (0 to width/2)
+      page1.setCropBox(0, 0, width / 2, height);
+      newPdfDoc.addPage(page1);
+      
+      // Right Page (width/2 to width)
+      page2.setCropBox(width / 2, 0, width / 2, height);
+      newPdfDoc.addPage(page2);
+    }
   }
   
   return await newPdfDoc.save();

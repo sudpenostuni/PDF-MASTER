@@ -26,7 +26,9 @@ import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
 import { InsertPageModal } from '@/components/InsertPageModal';
+import { SplitPageModal } from '@/components/SplitPageModal';
 import { cn } from '@/lib/utils';
+import { SplitConfig } from '@/lib/pdf-utils';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -36,6 +38,8 @@ export default function PDFEditor() {
   const [pages, setPages] = useState<PageItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isInsertModalOpen, setIsInsertModalOpen] = useState(false);
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [mergedPdfForSplit, setMergedPdfForSplit] = useState<Uint8Array | null>(null);
   
   // Popup State
   const [popupState, setPopupState] = useState<{
@@ -220,7 +224,31 @@ export default function PDFEditor() {
 
   const handleSplitPages = async () => {
     if (pages.length === 0) return;
-    if (!confirm('This will split ALL pages into two vertical halves (left/right) and replace your current workspace. Continue?')) return;
+    
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Preparing preview...',
+    });
+
+    try {
+      // Generate current state as a PDF for the preview
+      const currentPdfBytes = await generateMergedPDF(files, pages);
+      setMergedPdfForSplit(currentPdfBytes);
+      setPopupState(prev => ({ ...prev, isOpen: false }));
+      setIsSplitModalOpen(true);
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Failed to prepare split preview.',
+      });
+    }
+  };
+
+  const confirmSplitPages = async (config?: SplitConfig) => {
+    if (!mergedPdfForSplit) return;
 
     setPopupState({
       isOpen: true,
@@ -229,16 +257,13 @@ export default function PDFEditor() {
     });
 
     try {
-      // 1. Generate current state as a PDF
-      const currentPdfBytes = await generateMergedPDF(files, pages);
+      // Split the pages using the generated PDF and config
+      const splitPdfBytes = await splitPDFPages(mergedPdfForSplit, config);
       
-      // 2. Split the pages
-      const splitPdfBytes = await splitPDFPages(currentPdfBytes);
-      
-      // 3. Load as new file
+      // Load as new file
       const newFile = await loadPDFFromBytes(splitPdfBytes.buffer, 'Split_Document.pdf');
       
-      // 4. Reset workspace with new file
+      // Reset workspace with new file
       const newPages: PageItem[] = [];
       for (let i = 0; i < newFile.pageCount; i++) {
         newPages.push({
@@ -251,6 +276,7 @@ export default function PDFEditor() {
 
       setFiles([newFile]);
       setPages(newPages);
+      setMergedPdfForSplit(null);
 
       setPopupState({
         isOpen: true,
@@ -413,6 +439,13 @@ export default function PDFEditor() {
         onClose={() => setIsInsertModalOpen(false)}
         onConfirm={confirmAddBlankPage}
         maxPages={pages.length}
+      />
+
+      <SplitPageModal
+        isOpen={isSplitModalOpen}
+        onClose={() => setIsSplitModalOpen(false)}
+        onConfirm={confirmSplitPages}
+        pdfBytes={mergedPdfForSplit}
       />
     </div>
   );
