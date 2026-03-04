@@ -73,7 +73,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
               }}
               onPointerDown={(e) => e.stopPropagation()}
               className="p-1.5 bg-white text-indigo-600 rounded-md shadow-sm hover:bg-indigo-50 border border-slate-200"
-              title="Insert File After"
+              title="Inserisci file dopo"
             >
               <FileInput className="w-4 h-4" />
             </button>
@@ -86,7 +86,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
               }}
               onPointerDown={(e) => e.stopPropagation()}
               className="p-1.5 bg-white text-indigo-600 rounded-md shadow-sm hover:bg-indigo-50 border border-slate-200"
-              title="Insert Blank Page After"
+              title="Inserisci pagina vuota dopo"
             >
               <FilePlus className="w-4 h-4" />
             </button>
@@ -99,7 +99,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
               }}
               onPointerDown={(e) => e.stopPropagation()}
               className="p-1.5 bg-white text-slate-700 rounded-md shadow-sm hover:bg-slate-50 border border-slate-200"
-              title="Duplicate Page"
+              title="Duplica pagina"
             >
               <Copy className="w-4 h-4" />
             </button>
@@ -109,7 +109,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
         {/* Preview */}
         <div className="aspect-[1/1.414] bg-slate-100 flex items-center justify-center overflow-hidden relative">
           {page.isBlank ? (
-            <div className="text-slate-400 text-sm font-medium">Blank Page</div>
+            <div className="text-slate-400 text-sm font-medium">Pagina vuota</div>
           ) : file ? (
             <div 
               className="w-full h-full flex items-center justify-center origin-center transition-transform"
@@ -126,7 +126,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
               </Document>
             </div>
           ) : (
-            <div className="text-red-400 text-xs">File not found</div>
+            <div className="text-red-400 text-xs">File non trovato</div>
           )}
         </div>
 
@@ -146,7 +146,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
                   onRotate(page.id);
                 }}
                 className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors"
-                title="Rotate 90°"
+                title="Ruota 90°"
               >
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
@@ -158,7 +158,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
                   onRemove(page.id);
                 }}
                 className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-600 transition-colors"
-                title="Remove Page"
+                title="Rimuovi pagina"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

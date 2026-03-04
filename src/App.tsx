@@ -66,7 +66,7 @@ export default function PDFEditor() {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: `Loading ${acceptedFiles.length} file(s)...`,
+      message: `Caricamento di ${acceptedFiles.length} file...`,
     });
 
     try {
@@ -97,7 +97,7 @@ export default function PDFEditor() {
       setPopupState({
         isOpen: true,
         status: 'error',
-        message: 'Failed to load PDF files. Please try again.',
+        message: 'Impossibile caricare i file PDF. Riprova.',
       });
     }
   }, []);
@@ -208,7 +208,7 @@ export default function PDFEditor() {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: 'Loading files...',
+      message: 'Caricamento file...',
     });
 
     try {
@@ -244,14 +244,14 @@ export default function PDFEditor() {
       setPopupState({
         isOpen: true,
         status: 'success',
-        message: `Added ${newPages.length} pages.`,
+        message: `Aggiunte ${newPages.length} pagine.`,
       });
     } catch (error) {
       console.error(error);
       setPopupState({
         isOpen: true,
         status: 'error',
-        message: 'Failed to load files.',
+        message: 'Impossibile caricare i file.',
       });
     } finally {
       setInsertAfterId(null);
@@ -260,7 +260,7 @@ export default function PDFEditor() {
   };
 
   const handleClearAll = () => {
-    if (confirm('Are you sure you want to clear all pages?')) {
+    if (confirm('Sei sicuro di voler cancellare tutte le pagine?')) {
       setFiles([]);
       setPages([]);
       setSelectedPages(new Set());
@@ -273,7 +273,7 @@ export default function PDFEditor() {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: 'Generating your new PDF...',
+      message: 'Generazione del nuovo PDF...',
     });
 
     try {
@@ -283,12 +283,22 @@ export default function PDFEditor() {
 
       const mergedPdfBytes = await generateMergedPDF(files, pagesToExport);
       
+      // Determine filename
+      let fileName = 'document';
+      if (pagesToExport.length > 0) {
+        const firstPage = pagesToExport[0];
+        const firstFile = files.find(f => f.id === firstPage.fileId);
+        if (firstFile) {
+          fileName = firstFile.name.replace(/\.pdf$/i, '');
+        }
+      }
+
       // Create blob and download
       const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `merged-document-${new Date().toISOString().slice(0, 10)}.pdf`;
+      link.download = `${fileName}-pdfmaster.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -297,14 +307,14 @@ export default function PDFEditor() {
       setPopupState({
         isOpen: true,
         status: 'success',
-        message: 'PDF downloaded successfully!',
+        message: 'PDF scaricato con successo!',
       });
     } catch (error) {
       console.error(error);
       setPopupState({
         isOpen: true,
         status: 'error',
-        message: 'Failed to generate PDF.',
+        message: 'Impossibile generare il PDF.',
       });
     }
   };
@@ -315,7 +325,7 @@ export default function PDFEditor() {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: 'Preparing preview...',
+      message: 'Preparazione anteprima...',
     });
 
     try {
@@ -329,7 +339,7 @@ export default function PDFEditor() {
       setPopupState({
         isOpen: true,
         status: 'error',
-        message: 'Failed to prepare split preview.',
+        message: 'Impossibile preparare l\'anteprima di divisione.',
       });
     }
   };
@@ -340,7 +350,7 @@ export default function PDFEditor() {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: 'Splitting pages...',
+      message: 'Divisione pagine...',
     });
 
     try {
@@ -369,14 +379,14 @@ export default function PDFEditor() {
       setPopupState({
         isOpen: true,
         status: 'success',
-        message: 'Pages split successfully!',
+        message: 'Pagine divise con successo!',
       });
     } catch (error) {
       console.error(error);
       setPopupState({
         isOpen: true,
         status: 'error',
-        message: 'Failed to split pages.',
+        message: 'Impossibile dividere le pagine.',
       });
     }
   };
@@ -400,17 +410,17 @@ export default function PDFEditor() {
               className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <Trash className="w-4 h-4" />
-              <span className="hidden sm:inline">Clear All</span>
+              <span className="hidden sm:inline">Cancella tutto</span>
             </button>
             <div className="h-6 w-px bg-slate-200 mx-1" />
             <button
               onClick={handleSplitPages}
               disabled={pages.length === 0}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Split all pages into two vertical halves"
+              title="Dividi tutte le pagine in due metà verticali"
             >
               <Columns className="w-4 h-4" />
-              <span className="hidden sm:inline">Split Pages</span>
+              <span className="hidden sm:inline">Dividi pagine</span>
             </button>
             <button
               onClick={handleDownload}
@@ -419,7 +429,7 @@ export default function PDFEditor() {
             >
               <Download className="w-4 h-4" />
               <span>
-                {selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : 'Export PDF'}
+                {selectedPages.size > 0 ? `Esporta selezionate (${selectedPages.size})` : 'Esporta PDF'}
               </span>
             </button>
           </div>
@@ -445,14 +455,14 @@ export default function PDFEditor() {
               <FileUp className="w-10 h-10 text-indigo-600" />
             </div>
             <h3 className="text-2xl font-semibold text-slate-900 mb-2">
-              Drop your PDF files here
+              Trascina qui i tuoi file PDF
             </h3>
             <p className="text-slate-500 max-w-md mx-auto mb-8">
-              Upload multiple files to merge, reorder, rotate, or add blank pages.
-              Everything happens in your browser.
+              Carica più file per unire, riordinare, ruotare o aggiungere pagine vuote.
+              Tutto avviene nel tuo browser.
             </p>
             <button className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl shadow-md hover:bg-indigo-700 transition-colors">
-              Select PDF Files
+              Seleziona file PDF
             </button>
           </div>
         ) : (

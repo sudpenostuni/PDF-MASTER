@@ -187,7 +187,7 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
       {/* Top Bar */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm z-30 shrink-0">
         <div className="flex items-center gap-6">
-          <h3 className="text-xl font-bold text-slate-900">Split Pages</h3>
+          <h3 className="text-xl font-bold text-slate-900">Dividi pagine</h3>
           
           <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
             <button
@@ -199,7 +199,7 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
                   : "text-slate-600 hover:text-slate-900"
               )}
             >
-              Auto Split
+              Divisione Auto
             </button>
             <button
               onClick={() => setMode('manual')}
@@ -210,7 +210,7 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
                   : "text-slate-600 hover:text-slate-900"
               )}
             >
-              Manual Split
+              Divisione Manuale
             </button>
           </div>
         </div>
@@ -258,21 +258,21 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
               <button 
                 onClick={() => setScale(s => Math.min(3, s + 0.1))}
                 className="p-2 hover:bg-slate-50 rounded text-slate-600"
-                title="Zoom In"
+                title="Zoom Avanti"
               >
                 <ZoomIn className="w-5 h-5" />
               </button>
               <button 
                 onClick={() => setScale(s => Math.max(0.5, s - 0.1))}
                 className="p-2 hover:bg-slate-50 rounded text-slate-600"
-                title="Zoom Out"
+                title="Zoom Indietro"
               >
                 <ZoomOut className="w-5 h-5" />
               </button>
               <button 
                 onClick={() => setScale(1.0)}
                 className="p-2 hover:bg-slate-50 rounded text-slate-600"
-                title="Reset Zoom"
+                title="Reimposta Zoom"
               >
                 <Maximize className="w-5 h-5" />
               </button>
@@ -291,11 +291,11 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
                   <span className="text-indigo-300 font-bold text-xl">2</span>
                 </div>
               </div>
-              <h4 className="text-xl font-semibold text-slate-900 mb-2">Auto Split Mode</h4>
+              <h4 className="text-xl font-semibold text-slate-900 mb-2">Modalità Divisione Automatica</h4>
               <p className="text-slate-600 text-lg">
-                Automatically splits every page into two equal vertical halves. 
+                Divide automaticamente ogni pagina in due metà verticali uguali. 
                 <br />
-                Ideal for scanned books where two pages are on one sheet.
+                Ideale per libri scansionati dove due pagine sono su un unico foglio.
               </p>
             </div>
           ) : (
@@ -339,7 +339,7 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
                   </div>
                 </div>
               )}
-              {!pdfUrl && <p className="text-slate-400 mt-20">No PDF loaded</p>}
+              {!pdfUrl && <p className="text-slate-400 mt-20">Nessun PDF caricato</p>}
             </div>
           )}
         </div>
@@ -348,20 +348,20 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
       {/* Bottom Bar */}
       <div className="bg-white border-t border-slate-200 px-6 py-4 flex justify-between items-center shrink-0 z-30">
         <div className="text-sm text-slate-500">
-          {mode === 'manual' ? 'Adjust the boxes to define the split areas.' : 'Standard center split.'}
+          {mode === 'manual' ? 'Regola i riquadri per definire le aree di divisione.' : 'Divisione centrale standard.'}
         </div>
         <div className="flex gap-3">
           <button
             onClick={onClose}
             className="px-6 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
           >
-            Cancel
+            Annulla
           </button>
           <button
             onClick={handleConfirm}
             className="px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-sm transition-colors"
           >
-            Split All Pages
+            Dividi tutte le pagine
           </button>
         </div>
       </div>

@@ -43,7 +43,7 @@ export function ProcessingPopup({ isOpen, status, message, onClose }: Processing
 
           <div>
             <h3 className="text-lg font-semibold text-slate-900">
-              {status === 'processing' ? 'Processing...' : status === 'success' ? 'Complete!' : 'Error'}
+              {status === 'processing' ? 'Elaborazione...' : status === 'success' ? 'Completato!' : 'Errore'}
             </h3>
             <p className="text-sm text-slate-500 mt-1">{message}</p>
           </div>
@@ -53,7 +53,7 @@ export function ProcessingPopup({ isOpen, status, message, onClose }: Processing
               onClick={onClose}
               className="mt-2 px-6 py-2 bg-slate-900 text-white text-sm font-medium rounded-full hover:bg-slate-800 transition-colors"
             >
-              Close
+              Chiudi
             </button>
           )}
         </div>
