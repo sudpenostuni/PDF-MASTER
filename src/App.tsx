@@ -19,9 +19,9 @@ import {
 } from '@dnd-kit/sortable';
 import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, FileUp, Download, FilePlus, Trash, Columns } from 'lucide-react';
+import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book } from 'lucide-react';
 
-import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
+import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
@@ -391,6 +391,20 @@ export default function PDFEditor() {
     }
   };
 
+  const handleBookletReorder = () => {
+    if (pages.length === 0) return;
+
+    if (confirm('Questa operazione riorganizzerà le pagine per la stampa a opuscolo. Verranno aggiunte pagine vuote se necessario per arrivare a un multiplo di 4. Continuare?')) {
+      const bookletPages = reorderPagesForBooklet(pages);
+      setPages(bookletPages);
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: 'Pagine riorganizzate per opuscolo!',
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
@@ -413,6 +427,15 @@ export default function PDFEditor() {
               <span className="hidden sm:inline">Cancella tutto</span>
             </button>
             <div className="h-6 w-px bg-slate-200 mx-1" />
+            <button
+              onClick={handleBookletReorder}
+              disabled={pages.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Riorganizza le pagine per la stampa a opuscolo"
+            >
+              <Book className="w-4 h-4" />
+              <span className="hidden sm:inline">Opuscolo</span>
+            </button>
             <button
               onClick={handleSplitPages}
               disabled={pages.length === 0}

@@ -144,3 +144,37 @@ export async function generateMergedPDF(
 
   return await mergedPdf.save();
 }
+
+export function reorderPagesForBooklet(pages: PageItem[]): PageItem[] {
+  const n = pages.length;
+  const remainder = n % 4;
+  const paddingNeeded = remainder === 0 ? 0 : 4 - remainder;
+  
+  // Create a copy of pages and add blank pages if needed
+  const workingPages = [...pages];
+  for (let i = 0; i < paddingNeeded; i++) {
+    workingPages.push({
+      id: uuidv4(),
+      fileId: 'blank',
+      pageIndex: -1,
+      rotation: 0,
+      isBlank: true,
+    });
+  }
+  
+  const totalPages = workingPages.length;
+  const bookletPages: PageItem[] = [];
+  const numSheets = totalPages / 4;
+  
+  for (let k = 1; k <= numSheets; k++) {
+    // Front of sheet k
+    bookletPages.push(workingPages[totalPages - 2 * (k - 1) - 1]); // Front Left
+    bookletPages.push(workingPages[2 * (k - 1)]);                 // Front Right
+    
+    // Back of sheet k
+    bookletPages.push(workingPages[2 * (k - 1) + 1]);             // Back Left
+    bookletPages.push(workingPages[totalPages - 2 * k + 1 - 1]);  // Back Right
+  }
+  
+  return bookletPages;
+}
