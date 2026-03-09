@@ -19,9 +19,9 @@ import {
 } from '@dnd-kit/sortable';
 import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book } from 'lucide-react';
+import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium } from 'lucide-react';
 
-import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, type PageItem, type PDFFile } from '@/lib/pdf-utils';
+import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
@@ -33,6 +33,8 @@ import { SplitConfig } from '@/lib/pdf-utils';
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 export default function PDFEditor() {
+  const [viewMode, setViewMode] = useState<'grid' | 'double'>('grid');
+  const [showCover, setShowCover] = useState(true);
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [pages, setPages] = useState<PageItem[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
@@ -405,6 +407,70 @@ export default function PDFEditor() {
     }
   };
 
+  const handleLightenBackground = async () => {
+    if (pages.length === 0) return;
+
+    const pagesToProcess = selectedPages.size > 0 
+      ? pages.filter(p => selectedPages.has(p.id))
+      : pages;
+
+    const msg = selectedPages.size > 0 
+      ? `Vuoi schiarire lo sfondo delle ${selectedPages.size} pagine selezionate? Questa operazione rasterizzerà le pagine.`
+      : `Vuoi schiarire lo sfondo di tutte le pagine? Questa operazione rasterizzerà le pagine.`;
+
+    if (!confirm(msg)) return;
+
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Schiarimento sfondo in corso... Potrebbe volerci un po\' di tempo.',
+    });
+
+    try {
+      const processedPdfBytes = await lightenPages(files, pagesToProcess);
+      
+      const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, 'Lightened_Document.pdf');
+      
+      const newPages: PageItem[] = [];
+      for (let i = 0; i < newFile.pageCount; i++) {
+        newPages.push({
+          id: uuidv4(),
+          fileId: newFile.id,
+          pageIndex: i,
+          rotation: 0,
+        });
+      }
+
+      setFiles(prev => [...prev, newFile]);
+      
+      setPages(prev => {
+        const next = [...prev];
+        let newPageIndex = 0;
+        for (let i = 0; i < next.length; i++) {
+          if (pagesToProcess.find(p => p.id === next[i].id)) {
+            next[i] = newPages[newPageIndex++];
+          }
+        }
+        return next;
+      });
+
+      setSelectedPages(new Set());
+
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: 'Sfondo schiarito con successo!',
+      });
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Errore durante lo schiarimento dello sfondo.',
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
@@ -427,6 +493,46 @@ export default function PDFEditor() {
               <span className="hidden sm:inline">Cancella tutto</span>
             </button>
             <div className="h-6 w-px bg-slate-200 mx-1" />
+            <div className="flex bg-slate-100 p-1 rounded-lg">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  viewMode === 'grid' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
+                )}
+                title="Vista Griglia"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('double')}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  viewMode === 'double' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
+                )}
+                title="Vista Doppia Pagina"
+              >
+                <BookOpen className="w-4 h-4" />
+              </button>
+            </div>
+            {viewMode === 'double' && (
+              <button
+                onClick={() => setShowCover(!showCover)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-2",
+                  showCover 
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  showCover ? "bg-indigo-500" : "bg-slate-300"
+                )} />
+                Copertina singola
+              </button>
+            )}
+            <div className="h-6 w-px bg-slate-200 mx-1" />
             <button
               onClick={handleBookletReorder}
               disabled={pages.length === 0}
@@ -435,6 +541,15 @@ export default function PDFEditor() {
             >
               <Book className="w-4 h-4" />
               <span className="hidden sm:inline">Opuscolo</span>
+            </button>
+            <button
+              onClick={handleLightenBackground}
+              disabled={pages.length === 0}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Schiarisci lo sfondo grigio (ideale per scansioni)"
+            >
+              <SunMedium className="w-4 h-4" />
+              <span className="hidden sm:inline">Schiarisci</span>
             </button>
             <button
               onClick={handleSplitPages}
@@ -498,20 +613,32 @@ export default function PDFEditor() {
               onDragEnd={handleDragEnd}
             >
               <SortableContext items={pages.map(p => p.id)} strategy={rectSortingStrategy}>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                  {pages.map((page) => (
-                    <SortablePage
+                <div className={cn(
+                  "grid",
+                  viewMode === 'grid' 
+                    ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6" 
+                    : "grid-cols-2 gap-x-2 gap-y-8 max-w-4xl mx-auto"
+                )}>
+                  {pages.map((page, index) => (
+                    <div 
                       key={page.id}
-                      page={page}
-                      file={files.find(f => f.id === page.fileId)}
-                      isSelected={selectedPages.has(page.id)}
-                      onToggleSelection={handleToggleSelection}
-                      onRotate={handleRotate}
-                      onRemove={handleRemove}
-                      onDuplicate={handleDuplicate}
-                      onInsertBlankPage={handleInsertBlankPage}
-                      onInsertFile={handleInsertFile}
-                    />
+                      className={cn(
+                        viewMode === 'double' && showCover && index === 0 && "col-start-2"
+                      )}
+                    >
+                      <SortablePage
+                        page={page}
+                        file={files.find(f => f.id === page.fileId)}
+                        isSelected={selectedPages.has(page.id)}
+                        onToggleSelection={handleToggleSelection}
+                        onRotate={handleRotate}
+                        onRemove={handleRemove}
+                        onDuplicate={handleDuplicate}
+                        onInsertBlankPage={handleInsertBlankPage}
+                        onInsertFile={handleInsertFile}
+                        isDoubleView={viewMode === 'double'}
+                      />
+                    </div>
                   ))}
                 </div>
               </SortableContext>

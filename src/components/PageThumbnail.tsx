@@ -15,11 +15,12 @@ interface PageThumbnailProps extends React.HTMLAttributes<HTMLDivElement> {
   onDuplicate?: (id: string) => void;
   onInsertBlankPage?: (id: string) => void;
   onInsertFile?: (id: string) => void;
+  isDoubleView?: boolean;
   dragHandleProps?: any;
 }
 
 export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
-  ({ page, file, isDragging, isSelected, onToggleSelection, onRotate, onRemove, onDuplicate, onInsertBlankPage, onInsertFile, dragHandleProps, className, style, ...props }, ref) => {
+  ({ page, file, isDragging, isSelected, onToggleSelection, onRotate, onRemove, onDuplicate, onInsertBlankPage, onInsertFile, isDoubleView, dragHandleProps, className, style, ...props }, ref) => {
     return (
       <div
         ref={ref}
@@ -118,7 +119,7 @@ export const PageThumbnail = forwardRef<HTMLDivElement, PageThumbnailProps>(
               <Document file={file.url} className="flex justify-center" loading={<div className="animate-pulse bg-slate-200 w-full h-full" />}>
                 <Page 
                   pageIndex={page.pageIndex} 
-                  width={200} 
+                  width={isDoubleView ? 400 : 200} 
                   renderTextLayer={false} 
                   renderAnnotationLayer={false}
                   className="pdf-page-thumbnail shadow-sm"

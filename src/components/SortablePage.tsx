@@ -14,6 +14,7 @@ interface SortablePageProps {
   onDuplicate: (id: string) => void;
   onInsertBlankPage: (id: string) => void;
   onInsertFile: (id: string) => void;
+  isDoubleView?: boolean;
 }
 
 export const SortablePage: React.FC<SortablePageProps> = ({ 
@@ -25,7 +26,8 @@ export const SortablePage: React.FC<SortablePageProps> = ({
   onRemove, 
   onDuplicate, 
   onInsertBlankPage, 
-  onInsertFile 
+  onInsertFile,
+  isDoubleView
 }) => {
   const {
     attributes,
@@ -56,6 +58,7 @@ export const SortablePage: React.FC<SortablePageProps> = ({
       onDuplicate={onDuplicate}
       onInsertBlankPage={onInsertBlankPage}
       onInsertFile={onInsertFile}
+      isDoubleView={isDoubleView}
       dragHandleProps={{ ...attributes, ...listeners }}
     />
   );

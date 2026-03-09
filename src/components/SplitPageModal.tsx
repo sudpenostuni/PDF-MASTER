@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Document, Page } from 'react-pdf';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NormalizedRect, SplitConfig } from '@/lib/pdf-utils';
 
@@ -141,8 +141,12 @@ function DraggableBox({ id, rect, color, containerRef, onChange }: DraggableBoxP
 export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPageModalProps) {
   const [mode, setMode] = useState<'auto' | 'manual'>('auto');
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const observerTarget = useRef<HTMLDivElement>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [pageIndex, setPageIndex] = useState<number>(0);
+  const [visiblePages, setVisiblePages] = useState<number>(6);
+  const [pageSize, setPageSize] = useState<{ width: number, height: number } | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [scale, setScale] = useState<number>(1.0);
   
@@ -152,9 +156,30 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
   useEffect(() => {
     if (isOpen) {
       setPageIndex(0);
+      setVisiblePages(6);
       setScale(1.0);
+      setPageSize(null);
     }
   }, [isOpen, pdfBytes]);
+
+  useEffect(() => {
+    if (mode === 'manual' && isOpen && numPages > 0) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting && visiblePages < numPages) {
+            setVisiblePages(prev => Math.min(prev + 6, numPages));
+          }
+        },
+        { threshold: 0.1, root: scrollContainerRef.current }
+      );
+
+      if (observerTarget.current) {
+        observer.observe(observerTarget.current);
+      }
+
+      return () => observer.disconnect();
+    }
+  }, [mode, isOpen, numPages, visiblePages]);
 
   useEffect(() => {
     if (pdfBytes) {
@@ -180,6 +205,24 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
+  }
+
+  function onPageLoadSuccess(page: any) {
+    if (!pageSize && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const padding = 80; // Margin for handles and breathing room
+      const availableWidth = container.clientWidth - padding;
+      const availableHeight = container.clientHeight - padding;
+      
+      const scaleW = availableWidth / page.width;
+      const scaleH = availableHeight / page.height;
+      
+      // Use the smaller scale to ensure it fits both ways, but cap at 1.0
+      const initialScale = Math.min(1.0, scaleW, scaleH);
+      
+      setPageSize({ width: page.width, height: page.height });
+      setScale(initialScale);
+    }
   }
 
   return (
@@ -217,24 +260,10 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
 
         <div className="flex items-center gap-4">
           {mode === 'manual' && numPages > 0 && (
-            <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
-              <button
-                onClick={() => setPageIndex(prev => Math.max(0, prev - 1))}
-                disabled={pageIndex <= 0}
-                className="p-1.5 rounded-md hover:bg-white hover:shadow-sm disabled:opacity-30 transition-all"
-              >
-                <ChevronLeft className="w-5 h-5 text-slate-600" />
-              </button>
-              <span className="text-sm font-medium text-slate-700 w-[100px] text-center font-mono">
-                {pageIndex + 1} / {numPages}
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+              <span className="text-sm font-medium text-slate-700 font-mono">
+                Pagine caricate: {Math.min(visiblePages, numPages)} / {numPages}
               </span>
-              <button
-                onClick={() => setPageIndex(prev => Math.min(numPages - 1, prev + 1))}
-                disabled={pageIndex >= numPages - 1}
-                className="p-1.5 rounded-md hover:bg-white hover:shadow-sm disabled:opacity-30 transition-all"
-              >
-                <ChevronRight className="w-5 h-5 text-slate-600" />
-              </button>
             </div>
           )}
           
@@ -280,7 +309,7 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
           </div>
         )}
 
-        <div className="flex-1 overflow-auto bg-slate-100 p-8 flex justify-center">
+        <div className="flex-1 overflow-auto bg-slate-100 p-8 flex justify-center" ref={scrollContainerRef}>
           {mode === 'auto' ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg text-center">
               <div className="flex justify-center mb-8 space-x-2">
@@ -301,42 +330,72 @@ export function SplitPageModal({ isOpen, onClose, onConfirm, pdfBytes }: SplitPa
           ) : (
             <div className="relative min-h-min min-w-min">
               {pdfUrl && (
-                <div className="relative shadow-2xl ring-1 ring-black/5" ref={containerRef}>
-                  <Document 
-                    file={pdfUrl} 
-                    onLoadSuccess={onDocumentLoadSuccess}
-                    loading={
-                      <div className="flex items-center justify-center h-[600px] w-[400px] bg-white rounded-lg">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                      </div>
-                    }
-                  >
-                    <Page 
-                      pageIndex={pageIndex} 
-                      scale={scale}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      className="bg-white"
-                    />
-                  </Document>
-                  
-                  {/* Overlay Layer */}
-                  <div className="absolute inset-0 z-10 overflow-hidden">
-                    <DraggableBox 
-                      id={1} 
-                      rect={rect1} 
-                      color="rgba(59, 130, 246, 0.4)" // Blue
-                      containerRef={containerRef}
-                      onChange={setRect1}
-                    />
-                    <DraggableBox 
-                      id={2} 
-                      rect={rect2} 
-                      color="rgba(16, 185, 129, 0.4)" // Green
-                      containerRef={containerRef}
-                      onChange={setRect2}
-                    />
+                <div className="relative" style={{ width: pageSize ? pageSize.width * scale : 'auto' }}>
+                  {/* Pages List */}
+                  <div className="flex flex-col gap-8">
+                    <Document 
+                      file={pdfUrl} 
+                      onLoadSuccess={onDocumentLoadSuccess}
+                      loading={
+                        <div className="flex items-center justify-center h-[600px] w-[400px] bg-white rounded-lg shadow-sm">
+                          <Loader2 className="animate-spin h-12 w-12 text-indigo-600" />
+                        </div>
+                      }
+                    >
+                      {Array.from({ length: Math.min(visiblePages, numPages || 1) }).map((_, i) => (
+                        <div key={i} className="relative shadow-2xl ring-1 ring-black/5 bg-white">
+                          <Page 
+                            pageIndex={i} 
+                            scale={scale}
+                            renderTextLayer={false}
+                            renderAnnotationLayer={false}
+                            onLoadSuccess={i === 0 ? onPageLoadSuccess : undefined}
+                            className="bg-white"
+                          />
+                        </div>
+                      ))}
+                    </Document>
+                    
+                    {/* Intersection Observer Sentinel */}
+                    <div ref={observerTarget} className="h-20 flex items-center justify-center">
+                      {visiblePages < numPages && (
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Loader2 className="animate-spin w-5 h-5" />
+                          <span>Caricamento altre pagine...</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  
+                  {/* Sticky Overlay Layer for Boxes */}
+                  {pageSize && (
+                    <div className="absolute inset-0 pointer-events-none" style={{ height: '100%' }}>
+                      <div 
+                        className="sticky top-0 z-20" 
+                        style={{ 
+                          width: pageSize.width * scale, 
+                          height: pageSize.height * scale 
+                        }}
+                      >
+                        <div className="relative w-full h-full pointer-events-auto" ref={containerRef}>
+                          <DraggableBox 
+                            id={1} 
+                            rect={rect1} 
+                            color="rgba(59, 130, 246, 0.4)" // Blue
+                            containerRef={containerRef}
+                            onChange={setRect1}
+                          />
+                          <DraggableBox 
+                            id={2} 
+                            rect={rect2} 
+                            color="rgba(16, 185, 129, 0.4)" // Green
+                            containerRef={containerRef}
+                            onChange={setRect2}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {!pdfUrl && <p className="text-slate-400 mt-20">Nessun PDF caricato</p>}

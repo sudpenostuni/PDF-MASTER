@@ -1,5 +1,6 @@
 import { PDFDocument, degrees } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
+import { pdfjs } from 'react-pdf';
 
 export interface PageItem {
   id: string;
@@ -177,4 +178,94 @@ export function reorderPagesForBooklet(pages: PageItem[]): PageItem[] {
   }
   
   return bookletPages;
+}
+
+export async function lightenPages(
+  files: PDFFile[],
+  pagesToProcess: PageItem[]
+): Promise<Uint8Array> {
+  const mergedPdf = await PDFDocument.create();
+  const pdfDocsCache: Record<string, any> = {};
+
+  for (const pageItem of pagesToProcess) {
+    if (pageItem.isBlank) {
+      mergedPdf.addPage();
+      continue;
+    }
+
+    const file = files.find(f => f.id === pageItem.fileId);
+    if (!file) continue;
+
+    if (!pdfDocsCache[file.id]) {
+      pdfDocsCache[file.id] = await pdfjs.getDocument({ data: file.data }).promise;
+    }
+
+    const pdfDoc = pdfDocsCache[file.id];
+    const page = await pdfDoc.getPage(pageItem.pageIndex + 1);
+
+    // Scale 2.0 provides a good balance between quality and performance
+    const scale = 2.0;
+    const viewport = page.getViewport({ scale });
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // Contrast stretch parameters
+    const minGray = 100; // Darker than this becomes black
+    const maxGray = 190; // Lighter than this becomes white
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // Grayscale conversion
+      let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      
+      // Contrast stretch
+      if (gray < minGray) {
+        gray = 0;
+      } else if (gray > maxGray) {
+        gray = 255;
+      } else {
+        gray = Math.round(((gray - minGray) / (maxGray - minGray)) * 255);
+      }
+      
+      data[i] = gray;
+      data[i + 1] = gray;
+      data[i + 2] = gray;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    
+    const imgDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const imgBytes = await fetch(imgDataUrl).then(res => res.arrayBuffer());
+    
+    const jpgImage = await mergedPdf.embedJpg(imgBytes);
+    
+    const originalViewport = page.getViewport({ scale: 1.0 });
+    const newPage = mergedPdf.addPage([originalViewport.width, originalViewport.height]);
+    
+    newPage.drawImage(jpgImage, {
+      x: 0,
+      y: 0,
+      width: originalViewport.width,
+      height: originalViewport.height,
+    });
+    
+    if (pageItem.rotation) {
+       newPage.setRotation(degrees(pageItem.rotation));
+    }
+  }
+
+  return await mergedPdf.save();
 }
