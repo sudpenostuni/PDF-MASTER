@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/sortable';
 import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium } from 'lucide-react';
+import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium, CheckSquare, Square, Copy, Trash2 } from 'lucide-react';
 
 import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
@@ -31,6 +31,104 @@ import { SplitConfig } from '@/lib/pdf-utils';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+type MenuItem = {
+  label: string;
+  icon?: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  divider?: boolean;
+  shortcut?: string;
+};
+
+type Menu = {
+  title: string;
+  items: MenuItem[];
+};
+
+const MenuDropdown = ({ title, items, isOpen, onToggle, onMouseEnter, closeMenu }: { title: string, items: MenuItem[], isOpen: boolean, onToggle: () => void, onMouseEnter: () => void, closeMenu: () => void }) => {
+  return (
+    <div className="relative" onMouseEnter={onMouseEnter}>
+      <button
+        onClick={onToggle}
+        className={cn(
+          "px-3 py-1 text-sm rounded-md transition-colors",
+          isOpen ? "bg-slate-200 text-slate-900" : "text-slate-700 hover:bg-slate-200"
+        )}
+      >
+        {title}
+      </button>
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-0.5 w-64 bg-white border border-slate-200 rounded-md shadow-lg py-1 z-50">
+          {items.map((item, idx) => {
+            if (item.divider) {
+              return <div key={idx} className="h-px bg-slate-200 my-1" />;
+            }
+            return (
+              <button
+                key={idx}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!item.disabled && item.onClick) {
+                    item.onClick();
+                    closeMenu();
+                  }
+                }}
+                disabled={item.disabled}
+                className={cn(
+                  "w-full text-left px-4 py-1.5 text-sm flex items-center justify-between",
+                  item.disabled ? "text-slate-400 cursor-not-allowed" : "text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {item.icon ? <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span> : <span className="w-4 h-4" />}
+                  <span>{item.label}</span>
+                </div>
+                {item.shortcut && <span className="text-xs text-slate-400">{item.shortcut}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MenuBar = ({ menus }: { menus: Menu[] }) => {
+  const [openMenuIndex, setOpenMenuIndex] = React.useState<number | null>(null);
+  const barRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (barRef.current && !barRef.current.contains(e.target as Node)) {
+        setOpenMenuIndex(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-1" ref={barRef}>
+      {menus.map((menu, idx) => (
+        <MenuDropdown
+          key={idx}
+          title={menu.title}
+          items={menu.items}
+          isOpen={openMenuIndex === idx}
+          onToggle={() => setOpenMenuIndex(openMenuIndex === idx ? null : idx)}
+          onMouseEnter={() => {
+            if (openMenuIndex !== null && openMenuIndex !== idx) {
+              setOpenMenuIndex(idx);
+            }
+          }}
+          closeMenu={() => setOpenMenuIndex(null)}
+        />
+      ))}
+    </div>
+  );
+};
 
 export default function PDFEditor() {
   const [viewMode, setViewMode] = useState<'grid' | 'double'>('grid');
@@ -471,104 +569,135 @@ export default function PDFEditor() {
     }
   };
 
+  const handleSelectAll = () => {
+    setSelectedPages(new Set(pages.map(p => p.id)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPages(new Set());
+  };
+
+  const handleRemoveSelected = () => {
+    if (selectedPages.size === 0) return;
+    if (confirm(`Sei sicuro di voler rimuovere ${selectedPages.size} pagine?`)) {
+      setPages(items => items.filter(item => !selectedPages.has(item.id)));
+      setSelectedPages(new Set());
+    }
+  };
+
+  const handleDuplicateSelected = () => {
+    if (selectedPages.size === 0) return;
+    const pagesToAdd: PageItem[] = [];
+    
+    pages.forEach((page) => {
+      if (selectedPages.has(page.id)) {
+        pagesToAdd.push({
+          ...page,
+          id: uuidv4(),
+        });
+      }
+    });
+    
+    setPages([...pages, ...pagesToAdd]);
+  };
+
+  const menus: Menu[] = [
+    {
+      title: 'File',
+      items: [
+        { label: 'Aggiungi PDF...', icon: <FilePlus className="w-4 h-4" />, onClick: () => fileInputRef.current?.click() },
+        { divider: true },
+        { label: 'Esporta PDF', icon: <Download className="w-4 h-4" />, onClick: handleDownload, disabled: pages.length === 0 },
+        { label: 'Esporta Selezionate', icon: <Download className="w-4 h-4" />, onClick: handleDownload, disabled: selectedPages.size === 0 },
+        { divider: true },
+        { label: 'Cancella Tutto', icon: <Trash className="w-4 h-4 text-red-500" />, onClick: handleClearAll, disabled: pages.length === 0 },
+      ]
+    },
+    {
+      title: 'Modifica',
+      items: [
+        { label: 'Seleziona Tutto', icon: <CheckSquare className="w-4 h-4" />, onClick: handleSelectAll, disabled: pages.length === 0 },
+        { label: 'Deseleziona Tutto', icon: <Square className="w-4 h-4" />, onClick: handleDeselectAll, disabled: selectedPages.size === 0 },
+        { divider: true },
+        { label: 'Rimuovi Selezionate', icon: <Trash2 className="w-4 h-4" />, onClick: handleRemoveSelected, disabled: selectedPages.size === 0 },
+        { label: 'Duplica Selezionate', icon: <Copy className="w-4 h-4" />, onClick: handleDuplicateSelected, disabled: selectedPages.size === 0 },
+      ]
+    },
+    {
+      title: 'Visualizza',
+      items: [
+        { label: 'Vista Griglia', icon: <LayoutGrid className="w-4 h-4" />, onClick: () => setViewMode('grid') },
+        { label: 'Vista Doppia Pagina', icon: <BookOpen className="w-4 h-4" />, onClick: () => setViewMode('double') },
+        { divider: true },
+        { label: showCover ? 'Nascondi Copertina Singola' : 'Mostra Copertina Singola', onClick: () => setShowCover(!showCover), disabled: viewMode !== 'double' },
+      ]
+    },
+    {
+      title: 'Strumenti',
+      items: [
+        { label: 'Dividi Pagine', icon: <Columns className="w-4 h-4" />, onClick: handleSplitPages, disabled: pages.length === 0 },
+        { label: 'Riorganizza per Opuscolo', icon: <Book className="w-4 h-4" />, onClick: handleBookletReorder, disabled: pages.length === 0 },
+        { label: 'Schiarisci Sfondo', icon: <SunMedium className="w-4 h-4" />, onClick: handleLightenBackground, disabled: pages.length === 0 },
+      ]
+    }
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-2 rounded-lg">
-              <FileUp className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">PDF Master</h1>
-          </div>
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 flex flex-col">
+        {/* Menu Bar */}
+        <div className="flex items-center justify-between px-2 h-10 bg-slate-100 border-b border-slate-200">
+          <MenuBar menus={menus} />
           
-          <div className="flex items-center gap-3">
-             <button
-              onClick={handleClearAll}
-              disabled={pages.length === 0}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              <Trash className="w-4 h-4" />
-              <span className="hidden sm:inline">Cancella tutto</span>
-            </button>
-            <div className="h-6 w-px bg-slate-200 mx-1" />
-            <div className="flex bg-slate-100 p-1 rounded-lg">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={cn(
-                  "p-1.5 rounded-md transition-all",
-                  viewMode === 'grid' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
-                )}
-                title="Vista Griglia"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('double')}
-                className={cn(
-                  "p-1.5 rounded-md transition-all",
-                  viewMode === 'double' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
-                )}
-                title="Vista Doppia Pagina"
-              >
-                <BookOpen className="w-4 h-4" />
-              </button>
+          <div className="flex items-center gap-2 px-2">
+            <span className="text-sm font-bold text-slate-700">PDF Master</span>
+            <div className="flex flex-col items-center justify-center w-7 h-7 rounded-full bg-yellow-400 text-blue-800 font-black leading-[0.85] text-[8px] shadow-sm">
+              <span>SUD</span>
+              <span>PEN</span>
             </div>
-            {viewMode === 'double' && (
-              <button
-                onClick={() => setShowCover(!showCover)}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-2",
-                  showCover 
-                    ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                )}
-              >
-                <div className={cn(
-                  "w-2 h-2 rounded-full",
-                  showCover ? "bg-indigo-500" : "bg-slate-300"
-                )} />
-                Copertina singola
-              </button>
-            )}
-            <div className="h-6 w-px bg-slate-200 mx-1" />
+          </div>
+        </div>
+        
+        {/* Toolbar */}
+        <div className="flex items-center px-4 h-12 gap-1 bg-white">
+          <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-600 hover:bg-slate-100 rounded-md transition-colors" title="Aggiungi PDF">
+            <FilePlus className="w-4 h-4" />
+          </button>
+          <button onClick={handleDownload} disabled={pages.length === 0} className="p-2 text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Esporta PDF">
+            <Download className="w-4 h-4" />
+          </button>
+          <div className="h-6 w-px bg-slate-200 mx-1" />
+          <button onClick={handleSplitPages} disabled={pages.length === 0} className="p-2 text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Dividi Pagine">
+            <Columns className="w-4 h-4" />
+          </button>
+          <button onClick={handleBookletReorder} disabled={pages.length === 0} className="p-2 text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Riorganizza per Opuscolo">
+            <Book className="w-4 h-4" />
+          </button>
+          <button onClick={handleLightenBackground} disabled={pages.length === 0} className="p-2 text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Schiarisci Sfondo">
+            <SunMedium className="w-4 h-4" />
+          </button>
+          <div className="h-6 w-px bg-slate-200 mx-1" />
+          <div className="flex bg-slate-100 p-0.5 rounded-md">
             <button
-              onClick={handleBookletReorder}
-              disabled={pages.length === 0}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Riorganizza le pagine per la stampa a opuscolo"
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                "p-1.5 rounded transition-all",
+                viewMode === 'grid' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
+              )}
+              title="Vista Griglia"
             >
-              <Book className="w-4 h-4" />
-              <span className="hidden sm:inline">Opuscolo</span>
+              <LayoutGrid className="w-4 h-4" />
             </button>
             <button
-              onClick={handleLightenBackground}
-              disabled={pages.length === 0}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Schiarisci lo sfondo grigio (ideale per scansioni)"
+              onClick={() => setViewMode('double')}
+              className={cn(
+                "p-1.5 rounded transition-all",
+                viewMode === 'double' ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:text-slate-700"
+              )}
+              title="Vista Doppia Pagina"
             >
-              <SunMedium className="w-4 h-4" />
-              <span className="hidden sm:inline">Schiarisci</span>
-            </button>
-            <button
-              onClick={handleSplitPages}
-              disabled={pages.length === 0}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Dividi tutte le pagine in due metà verticali"
-            >
-              <Columns className="w-4 h-4" />
-              <span className="hidden sm:inline">Dividi pagine</span>
-            </button>
-            <button
-              onClick={handleDownload}
-              disabled={pages.length === 0}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              <span>
-                {selectedPages.size > 0 ? `Esporta selezionate (${selectedPages.size})` : 'Esporta PDF'}
-              </span>
+              <BookOpen className="w-4 h-4" />
             </button>
           </div>
         </div>
