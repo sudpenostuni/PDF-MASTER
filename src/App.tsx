@@ -21,13 +21,15 @@ import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
 import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium, CheckSquare, Square, Copy, Trash2 } from 'lucide-react';
 
-import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
+import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, compressPDF, processPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
 import { SplitPageModal } from '@/components/SplitPageModal';
+import { CompressionModal, type CompressionMode } from '@/components/CompressionModal';
 import { cn } from '@/lib/utils';
 import { SplitConfig } from '@/lib/pdf-utils';
+import { FileDown, Image as ImageIcon, FileText } from 'lucide-react';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -142,6 +144,12 @@ export default function PDFEditor() {
   const [insertAfterId, setInsertAfterId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  const [compressionModalState, setCompressionModalState] = useState<{
+    isOpen: boolean;
+    files: File[];
+    largeFileDetails: { name: string; size: number } | null;
+  }>({ isOpen: false, files: [], largeFileDetails: null });
+
   // Popup State
   const [popupState, setPopupState] = useState<{
     isOpen: boolean;
@@ -160,29 +168,45 @@ export default function PDFEditor() {
     })
   );
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (acceptedFiles.length === 0) return;
-
+  const processFiles = async (filesToProcess: File[], compressionMode?: CompressionMode) => {
     setPopupState({
       isOpen: true,
       status: 'processing',
-      message: `Caricamento di ${acceptedFiles.length} file...`,
+      message: `Caricamento di ${filesToProcess.length} file...`,
     });
 
     try {
       const newFiles: PDFFile[] = [];
       const newPages: PageItem[] = [];
 
-      for (const file of acceptedFiles) {
+      for (let i = 0; i < filesToProcess.length; i++) {
+        let file = filesToProcess[i];
+        
+        if (file.size > 10 * 1024 * 1024 && compressionMode && compressionMode !== 'original') {
+          setPopupState({
+            isOpen: true,
+            status: 'processing',
+            message: `Compressione ${file.name} in corso... (0%)`,
+          });
+          
+          file = await compressPDF(file, compressionMode, (progress) => {
+            setPopupState({
+              isOpen: true,
+              status: 'processing',
+              message: `Compressione ${file.name} in corso... (${progress}%)`,
+            });
+          });
+        }
+
         const pdfFile = await loadPDF(file);
         newFiles.push(pdfFile);
         
         // Create page items for this file
-        for (let i = 0; i < pdfFile.pageCount; i++) {
+        for (let j = 0; j < pdfFile.pageCount; j++) {
           newPages.push({
             id: uuidv4(),
             fileId: pdfFile.id,
-            pageIndex: i,
+            pageIndex: j,
             rotation: 0,
           });
         }
@@ -199,6 +223,25 @@ export default function PDFEditor() {
         status: 'error',
         message: 'Impossibile caricare i file PDF. Riprova.',
       });
+    }
+  };
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+
+    const largeFiles = acceptedFiles.filter(f => f.size > 10 * 1024 * 1024);
+    
+    if (largeFiles.length > 0) {
+      setCompressionModalState({
+        isOpen: true,
+        files: acceptedFiles,
+        largeFileDetails: {
+          name: largeFiles.length === 1 ? largeFiles[0].name : `${largeFiles.length} file`,
+          size: largeFiles.reduce((acc, f) => acc + f.size, 0)
+        }
+      });
+    } else {
+      await processFiles(acceptedFiles);
     }
   }, []);
 
@@ -298,11 +341,7 @@ export default function PDFEditor() {
     });
   };
 
-  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = event.target.files;
-    if (!fileList || fileList.length === 0) return;
-    
-    // If no insertAfterId, just append (fallback)
+  const processFileInput = async (fileList: FileList, compressionMode?: CompressionMode) => {
     const targetIndex = insertAfterId ? pages.findIndex(p => p.id === insertAfterId) : pages.length - 1;
     
     setPopupState({
@@ -316,8 +355,24 @@ export default function PDFEditor() {
       const newPages: PageItem[] = [];
 
       for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
+        let file = fileList[i];
         if (file.type !== 'application/pdf') continue;
+
+        if (file.size > 10 * 1024 * 1024 && compressionMode && compressionMode !== 'original') {
+          setPopupState({
+            isOpen: true,
+            status: 'processing',
+            message: `Compressione ${file.name} in corso... (0%)`,
+          });
+          
+          file = await compressPDF(file, compressionMode, (progress) => {
+            setPopupState({
+              isOpen: true,
+              status: 'processing',
+              message: `Compressione ${file.name} in corso... (${progress}%)`,
+            });
+          });
+        }
 
         const pdfFile = await loadPDF(file);
         newFiles.push(pdfFile);
@@ -335,11 +390,16 @@ export default function PDFEditor() {
       setFiles(prev => [...prev, ...newFiles]);
       
       // Insert new pages after the target page
-      setPages(prev => [
-        ...prev.slice(0, targetIndex + 1),
-        ...newPages,
-        ...prev.slice(targetIndex + 1)
-      ]);
+      setPages(prev => {
+        if (targetIndex === -1) {
+          return [...prev, ...newPages];
+        }
+        return [
+          ...prev.slice(0, targetIndex + 1),
+          ...newPages,
+          ...prev.slice(targetIndex + 1)
+        ];
+      });
 
       setPopupState({
         isOpen: true,
@@ -356,6 +416,27 @@ export default function PDFEditor() {
     } finally {
       setInsertAfterId(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+    
+    const filesArray = Array.from(fileList);
+    const largeFiles = filesArray.filter(f => f.size > 10 * 1024 * 1024);
+    
+    if (largeFiles.length > 0) {
+      setCompressionModalState({
+        isOpen: true,
+        files: filesArray,
+        largeFileDetails: {
+          name: largeFiles.length === 1 ? largeFiles[0].name : `${largeFiles.length} file`,
+          size: largeFiles.reduce((acc, f) => acc + f.size, 0)
+        }
+      });
+    } else {
+      await processFileInput(fileList);
     }
   };
 
@@ -569,6 +650,82 @@ export default function PDFEditor() {
     }
   };
 
+  const handleProcessPages = async (mode: 'compress' | 'grayscale' | 'bw') => {
+    if (pages.length === 0) return;
+
+    const pagesToProcess = selectedPages.size > 0 
+      ? pages.filter(p => selectedPages.has(p.id))
+      : pages;
+
+    const modeNames = {
+      compress: 'comprimere',
+      grayscale: 'convertire in scala di grigi',
+      bw: 'convertire in bianco e nero'
+    };
+
+    const msg = selectedPages.size > 0 
+      ? `Vuoi ${modeNames[mode]} le ${selectedPages.size} pagine selezionate? Questa operazione rasterizzerà le pagine.`
+      : `Vuoi ${modeNames[mode]} tutte le pagine? Questa operazione rasterizzerà le pagine.`;
+
+    if (!confirm(msg)) return;
+
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Elaborazione in corso... (0%)',
+    });
+
+    try {
+      const processedPdfBytes = await processPages(files, pagesToProcess, mode, (progress) => {
+        setPopupState({
+          isOpen: true,
+          status: 'processing',
+          message: `Elaborazione in corso... (${progress}%)`,
+        });
+      });
+      
+      const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, `Processed_${mode}.pdf`);
+      
+      const newPages: PageItem[] = [];
+      for (let i = 0; i < newFile.pageCount; i++) {
+        newPages.push({
+          id: uuidv4(),
+          fileId: newFile.id,
+          pageIndex: i,
+          rotation: 0,
+        });
+      }
+
+      setFiles(prev => [...prev, newFile]);
+      
+      setPages(prev => {
+        const next = [...prev];
+        let newPageIndex = 0;
+        for (let i = 0; i < next.length; i++) {
+          if (pagesToProcess.find(p => p.id === next[i].id)) {
+            next[i] = newPages[newPageIndex++];
+          }
+        }
+        return next;
+      });
+
+      setSelectedPages(new Set());
+
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: 'Elaborazione completata con successo!',
+      });
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Errore durante l\'elaborazione delle pagine.',
+      });
+    }
+  };
+
   const handleSelectAll = () => {
     setSelectedPages(new Set(pages.map(p => p.id)));
   };
@@ -638,6 +795,10 @@ export default function PDFEditor() {
         { label: 'Dividi Pagine', icon: <Columns className="w-4 h-4" />, onClick: handleSplitPages, disabled: pages.length === 0 },
         { label: 'Riorganizza per Opuscolo', icon: <Book className="w-4 h-4" />, onClick: handleBookletReorder, disabled: pages.length === 0 },
         { label: 'Schiarisci Sfondo', icon: <SunMedium className="w-4 h-4" />, onClick: handleLightenBackground, disabled: pages.length === 0 },
+        { divider: true },
+        { label: 'Comprimi PDF', icon: <FileDown className="w-4 h-4" />, onClick: () => handleProcessPages('compress'), disabled: pages.length === 0 },
+        { label: 'Scala di grigi', icon: <ImageIcon className="w-4 h-4" />, onClick: () => handleProcessPages('grayscale'), disabled: pages.length === 0 },
+        { label: 'Bianco e nero', icon: <FileText className="w-4 h-4" />, onClick: () => handleProcessPages('bw'), disabled: pages.length === 0 },
       ]
     }
   ];
@@ -801,6 +962,28 @@ export default function PDFEditor() {
         onConfirm={confirmSplitPages}
         pdfBytes={mergedPdfForSplit}
       />
+
+      {compressionModalState.largeFileDetails && (
+        <CompressionModal
+          isOpen={compressionModalState.isOpen}
+          fileName={compressionModalState.largeFileDetails.name}
+          fileSize={compressionModalState.largeFileDetails.size}
+          onCancel={() => setCompressionModalState({ isOpen: false, files: [], largeFileDetails: null })}
+          onConfirm={(mode) => {
+            const filesToProcess = compressionModalState.files;
+            setCompressionModalState({ isOpen: false, files: [], largeFileDetails: null });
+            
+            // Check if it came from file input (insertAfterId might be set)
+            if (insertAfterId !== null || fileInputRef.current?.files?.length) {
+              const dataTransfer = new DataTransfer();
+              filesToProcess.forEach(f => dataTransfer.items.add(f));
+              processFileInput(dataTransfer.files, mode);
+            } else {
+              processFiles(filesToProcess, mode);
+            }
+          }}
+        />
+      )}
 
       {/* Hidden File Input for "Insert File" action */}
       <input

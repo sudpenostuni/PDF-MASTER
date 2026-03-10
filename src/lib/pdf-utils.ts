@@ -269,3 +269,172 @@ export async function lightenPages(
 
   return await mergedPdf.save();
 }
+
+export async function compressPDF(
+  file: File,
+  mode: 'compress' | 'grayscale' | 'bw',
+  onProgress?: (progress: number) => void
+): Promise<File> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const numPages = pdfDoc.numPages;
+
+  const newPdf = await PDFDocument.create();
+
+  for (let i = 1; i <= numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    
+    // Lower scale for compression, slightly higher for grayscale/bw to preserve readability
+    const scale = mode === 'compress' ? 1.0 : 1.5;
+    const viewport = page.getViewport({ scale });
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    if (mode === 'grayscale' || mode === 'bw') {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      for (let j = 0; j < data.length; j += 4) {
+        const r = data[j];
+        const g = data[j + 1];
+        const b = data[j + 2];
+        
+        let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        
+        if (mode === 'bw') {
+          // Threshold for B&W
+          gray = gray > 150 ? 255 : 0;
+        }
+        
+        data[j] = gray;
+        data[j + 1] = gray;
+        data[j + 2] = gray;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    const quality = mode === 'compress' ? 0.6 : 0.8;
+    const imgDataUrl = canvas.toDataURL('image/jpeg', quality);
+    const imgBytes = await fetch(imgDataUrl).then(res => res.arrayBuffer());
+    
+    const jpgImage = await newPdf.embedJpg(imgBytes);
+    
+    const originalViewport = page.getViewport({ scale: 1.0 });
+    const newPage = newPdf.addPage([originalViewport.width, originalViewport.height]);
+    
+    newPage.drawImage(jpgImage, {
+      x: 0,
+      y: 0,
+      width: originalViewport.width,
+      height: originalViewport.height,
+    });
+
+    if (onProgress) {
+      onProgress(Math.round((i / numPages) * 100));
+    }
+    
+    // Yield to main thread
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  const newPdfBytes = await newPdf.save();
+  return new File([newPdfBytes], file.name, { type: 'application/pdf' });
+}
+
+export async function processPages(
+  files: PDFFile[],
+  pagesToProcess: PageItem[],
+  mode: 'compress' | 'grayscale' | 'bw',
+  onProgress?: (progress: number) => void
+): Promise<Uint8Array> {
+  const mergedPdf = await PDFDocument.create();
+  const pdfDocsCache: Record<string, any> = {};
+
+  for (let idx = 0; idx < pagesToProcess.length; idx++) {
+    const pageItem = pagesToProcess[idx];
+    
+    if (pageItem.isBlank) {
+      mergedPdf.addPage();
+      continue;
+    }
+
+    const file = files.find(f => f.id === pageItem.fileId);
+    if (!file) continue;
+
+    if (!pdfDocsCache[file.id]) {
+      pdfDocsCache[file.id] = await pdfjs.getDocument({ data: file.data }).promise;
+    }
+
+    const pdfDoc = pdfDocsCache[file.id];
+    const page = await pdfDoc.getPage(pageItem.pageIndex + 1);
+
+    const scale = mode === 'compress' ? 1.0 : 1.5;
+    const viewport = page.getViewport({ scale });
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    if (mode === 'grayscale' || mode === 'bw') {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      for (let j = 0; j < data.length; j += 4) {
+        const r = data[j];
+        const g = data[j + 1];
+        const b = data[j + 2];
+        
+        let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        
+        if (mode === 'bw') {
+          gray = gray > 150 ? 255 : 0;
+        }
+        
+        data[j] = gray;
+        data[j + 1] = gray;
+        data[j + 2] = gray;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    const quality = mode === 'compress' ? 0.6 : 0.8;
+    const imgDataUrl = canvas.toDataURL('image/jpeg', quality);
+    const imgBytes = await fetch(imgDataUrl).then(res => res.arrayBuffer());
+    
+    const jpgImage = await mergedPdf.embedJpg(imgBytes);
+    
+    const originalViewport = page.getViewport({ scale: 1.0 });
+    const newPage = mergedPdf.addPage([originalViewport.width, originalViewport.height]);
+    
+    newPage.drawImage(jpgImage, {
+      x: 0,
+      y: 0,
+      width: originalViewport.width,
+      height: originalViewport.height,
+    });
+    
+    if (pageItem.rotation) {
+       newPage.setRotation(degrees(pageItem.rotation));
+    }
+
+    if (onProgress) {
+      onProgress(Math.round(((idx + 1) / pagesToProcess.length) * 100));
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  return await mergedPdf.save();
+}
