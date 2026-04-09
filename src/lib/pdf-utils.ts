@@ -348,6 +348,43 @@ export async function compressPDF(
   return new File([newPdfBytes], file.name, { type: 'application/pdf' });
 }
 
+export async function createTwoUpPDF(
+  files: PDFFile[],
+  pagesToProcess: PageItem[]
+): Promise<Uint8Array> {
+  // 1. Generate a merged PDF of the selected pages to apply rotations and handle blanks
+  const mergedBytes = await generateMergedPDF(files, pagesToProcess);
+  
+  const sourcePdf = await PDFDocument.load(mergedBytes);
+  const newPdf = await PDFDocument.create();
+  const pageCount = sourcePdf.getPageCount();
+  
+  for (let i = 0; i < pageCount; i++) {
+    const sourcePage = sourcePdf.getPage(i);
+    const embeddedPage = await newPdf.embedPage(sourcePage);
+    
+    const width = embeddedPage.width;
+    const height = embeddedPage.height;
+    
+    // Create a new page twice as wide
+    const newPage = newPdf.addPage([width * 2, height]);
+    
+    // Draw the left copy
+    newPage.drawPage(embeddedPage, {
+      x: 0,
+      y: 0,
+    });
+    
+    // Draw the right copy
+    newPage.drawPage(embeddedPage, {
+      x: width,
+      y: 0,
+    });
+  }
+  
+  return await newPdf.save();
+}
+
 export async function processPages(
   files: PDFFile[],
   pagesToProcess: PageItem[],

@@ -21,7 +21,7 @@ import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
 import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium, CheckSquare, Square, Copy, Trash2 } from 'lucide-react';
 
-import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, compressPDF, processPages, type PageItem, type PDFFile } from '@/lib/pdf-utils';
+import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, compressPDF, processPages, createTwoUpPDF, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
@@ -650,6 +650,70 @@ export default function PDFEditor() {
     }
   };
 
+  const handleTwoUp = async () => {
+    if (pages.length === 0) return;
+
+    const pagesToProcess = selectedPages.size > 0 
+      ? pages.filter(p => selectedPages.has(p.id))
+      : pages;
+
+    const msg = selectedPages.size > 0 
+      ? `Vuoi affiancare 2 copie per foglio delle ${selectedPages.size} pagine selezionate?`
+      : `Vuoi affiancare 2 copie per foglio di tutte le pagine?`;
+
+    if (!confirm(msg)) return;
+
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Generazione pagine affiancate in corso...',
+    });
+
+    try {
+      const processedPdfBytes = await createTwoUpPDF(files, pagesToProcess);
+      
+      const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, '2Up_Document.pdf');
+      
+      const newPages: PageItem[] = [];
+      for (let i = 0; i < newFile.pageCount; i++) {
+        newPages.push({
+          id: uuidv4(),
+          fileId: newFile.id,
+          pageIndex: i,
+          rotation: 0,
+        });
+      }
+
+      setFiles(prev => [...prev, newFile]);
+      
+      setPages(prev => {
+        const next = [...prev];
+        let newPageIndex = 0;
+        for (let i = 0; i < next.length; i++) {
+          if (pagesToProcess.find(p => p.id === next[i].id)) {
+            next[i] = newPages[newPageIndex++];
+          }
+        }
+        return next;
+      });
+
+      setSelectedPages(new Set());
+
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: 'Pagine affiancate con successo!',
+      });
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Errore durante l\'elaborazione delle pagine.',
+      });
+    }
+  };
+
   const handleProcessPages = async (mode: 'compress' | 'grayscale' | 'bw') => {
     if (pages.length === 0) return;
 
@@ -794,6 +858,7 @@ export default function PDFEditor() {
       items: [
         { label: 'Dividi Pagine', icon: <Columns className="w-4 h-4" />, onClick: handleSplitPages, disabled: pages.length === 0 },
         { label: 'Riorganizza per Opuscolo', icon: <Book className="w-4 h-4" />, onClick: handleBookletReorder, disabled: pages.length === 0 },
+        { label: 'Stampa 2 copie per foglio', icon: <Copy className="w-4 h-4" />, onClick: handleTwoUp, disabled: pages.length === 0 },
         { label: 'Schiarisci Sfondo', icon: <SunMedium className="w-4 h-4" />, onClick: handleLightenBackground, disabled: pages.length === 0 },
         { divider: true },
         { label: 'Comprimi PDF', icon: <FileDown className="w-4 h-4" />, onClick: () => handleProcessPages('compress'), disabled: pages.length === 0 },
