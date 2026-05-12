@@ -21,7 +21,7 @@ import { pdfjs } from 'react-pdf';
 import { v4 as uuidv4 } from 'uuid';
 import { Plus, FileUp, Download, FilePlus, Trash, Columns, Book, LayoutGrid, BookOpen, SunMedium, CheckSquare, Square, Copy, Trash2 } from 'lucide-react';
 
-import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, compressPDF, processPages, createTwoUpPDF, type PageItem, type PDFFile } from '@/lib/pdf-utils';
+import { loadPDF, loadPDFFromBytes, generateMergedPDF, splitPDFPages, reorderPagesForBooklet, lightenPages, compressPDF, processPages, createTwoUpPDF, convertGraphicDesignToBooklet, type PageItem, type PDFFile } from '@/lib/pdf-utils';
 import { SortablePage } from '@/components/SortablePage';
 import { PageThumbnail } from '@/components/PageThumbnail';
 import { ProcessingPopup } from '@/components/ProcessingPopup';
@@ -29,7 +29,7 @@ import { SplitPageModal } from '@/components/SplitPageModal';
 import { CompressionModal, type CompressionMode } from '@/components/CompressionModal';
 import { cn } from '@/lib/utils';
 import { SplitConfig } from '@/lib/pdf-utils';
-import { FileDown, Image as ImageIcon, FileText } from 'lucide-react';
+import { FileDown, Image as ImageIcon, FileText, Component } from 'lucide-react';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -714,6 +714,61 @@ export default function PDFEditor() {
     }
   };
 
+  const handleGraphicDesignBatch = async () => {
+    if (pages.length === 0) return;
+
+    const pagesToProcess = selectedPages.size > 0 
+      ? pages.filter(p => selectedPages.has(p.id))
+      : pages;
+
+    const msg = "Questa operazione individuerà le pagine centrali in formato A3 (doppia pagina), le dividerà in A4, unirà le copertine, e le riorganizzerà in un nuovo formato opuscolo da stampare (A3 fronte/retro). Vuoi procedere?";
+    if (!confirm(msg)) return;
+
+    setPopupState({
+      isOpen: true,
+      status: 'processing',
+      message: 'Elaborazione formato grafico in corso...',
+    });
+
+    try {
+      const processedPdfBytes = await convertGraphicDesignToBooklet(files, pagesToProcess);
+      
+      const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, 'Graphic_To_Booklet.pdf');
+      
+      const newPages: PageItem[] = [];
+      for (let i = 0; i < newFile.pageCount; i++) {
+        newPages.push({
+          id: uuidv4(),
+          fileId: newFile.id,
+          pageIndex: i,
+          rotation: 0,
+        });
+      }
+
+      setFiles(prev => [...prev, newFile]);
+      
+      // In this specific flow, since it completely reorders and merges multiple types,
+      // it is safer to append the new file pages at the end or replace.
+      // We will append it at the end to not mess with existing unrelated pages.
+      setPages(prev => [...prev.filter(p => !pagesToProcess.find(pt => pt.id === p.id)), ...newPages]);
+
+      setSelectedPages(new Set());
+
+      setPopupState({
+        isOpen: true,
+        status: 'success',
+        message: 'Conversione grafica completata!',
+      });
+    } catch (error) {
+      console.error(error);
+      setPopupState({
+        isOpen: true,
+        status: 'error',
+        message: 'Errore durante la conversione del formato grafico.',
+      });
+    }
+  };
+
   const handleProcessPages = async (mode: 'compress' | 'grayscale' | 'bw') => {
     if (pages.length === 0) return;
 
@@ -858,6 +913,7 @@ export default function PDFEditor() {
       items: [
         { label: 'Dividi Pagine', icon: <Columns className="w-4 h-4" />, onClick: handleSplitPages, disabled: pages.length === 0 },
         { label: 'Riorganizza per Opuscolo', icon: <Book className="w-4 h-4" />, onClick: handleBookletReorder, disabled: pages.length === 0 },
+        { label: 'Prepara da App Grafica (Affinity/InDesign)', icon: <Component className="w-4 h-4 text-purple-600" />, onClick: handleGraphicDesignBatch, disabled: pages.length === 0 },
         { label: 'Stampa 2 copie per foglio', icon: <Copy className="w-4 h-4" />, onClick: handleTwoUp, disabled: pages.length === 0 },
         { label: 'Schiarisci Sfondo', icon: <SunMedium className="w-4 h-4" />, onClick: handleLightenBackground, disabled: pages.length === 0 },
         { divider: true },
