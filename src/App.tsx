@@ -155,6 +155,7 @@ export default function PDFEditor() {
     isOpen: boolean;
     status: 'processing' | 'success' | 'error';
     message: string;
+    progress?: number;
   }>({
     isOpen: false,
     status: 'processing',
@@ -187,14 +188,15 @@ export default function PDFEditor() {
             isOpen: true,
             status: 'processing',
             message: `Compressione ${file.name} in corso... (0%)`,
+            progress: 0
           });
           
           file = await compressPDF(file, compressionMode, (progress) => {
-            setPopupState({
-              isOpen: true,
-              status: 'processing',
+            setPopupState(prev => ({
+              ...prev,
               message: `Compressione ${file.name} in corso... (${progress}%)`,
-            });
+              progress
+            }));
           });
         }
 
@@ -363,14 +365,15 @@ export default function PDFEditor() {
             isOpen: true,
             status: 'processing',
             message: `Compressione ${file.name} in corso... (0%)`,
+            progress: 0
           });
           
           file = await compressPDF(file, compressionMode, (progress) => {
-            setPopupState({
-              isOpen: true,
-              status: 'processing',
+            setPopupState(prev => ({
+              ...prev,
               message: `Compressione ${file.name} in corso... (${progress}%)`,
-            });
+              progress
+            }));
           });
         }
 
@@ -603,10 +606,13 @@ export default function PDFEditor() {
       isOpen: true,
       status: 'processing',
       message: 'Schiarimento sfondo in corso... Potrebbe volerci un po\' di tempo.',
+      progress: 0
     });
 
     try {
-      const processedPdfBytes = await lightenPages(files, pagesToProcess);
+      const processedPdfBytes = await processPages(files, pagesToProcess, 'grayscale', (progress) => {
+        setPopupState(prev => ({ ...prev, progress }));
+      });
       
       const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, 'Lightened_Document.pdf');
       
@@ -792,15 +798,16 @@ export default function PDFEditor() {
       isOpen: true,
       status: 'processing',
       message: 'Elaborazione in corso... (0%)',
+      progress: 0
     });
 
     try {
       const processedPdfBytes = await processPages(files, pagesToProcess, mode, (progress) => {
-        setPopupState({
-          isOpen: true,
-          status: 'processing',
+        setPopupState(prev => ({
+          ...prev,
           message: `Elaborazione in corso... (${progress}%)`,
-        });
+          progress
+        }));
       });
       
       const newFile = await loadPDFFromBytes(processedPdfBytes.buffer, `Processed_${mode}.pdf`);
@@ -1074,6 +1081,7 @@ export default function PDFEditor() {
         isOpen={popupState.isOpen}
         status={popupState.status}
         message={popupState.message}
+        progress={popupState.progress}
         onClose={() => setPopupState(prev => ({ ...prev, isOpen: false }))}
       />
 

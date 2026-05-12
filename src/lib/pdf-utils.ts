@@ -478,43 +478,54 @@ export async function processPages(
 
 export async function convertGraphicDesignToBooklet(
   files: PDFFile[],
-  pagesToProcess: PageItem[]
+  pagesToProcess: PageItem[],
+  onProgress?: (progress: number) => void
 ): Promise<Uint8Array> {
+  // 1. Merge selected pages
   const mergedBytes = await generateMergedPDF(files, pagesToProcess);
   const sourcePdf = await PDFDocument.load(mergedBytes);
-  const flattenedPdf = await PDFDocument.create();
   
+  // 2. Flatten into A4 reading order
+  const flattenedPdf = await PDFDocument.create();
   const pageCount = sourcePdf.getPageCount();
+  
   for (let i = 0; i < pageCount; i++) {
     const page = sourcePdf.getPage(i);
     const { width, height } = page.getSize();
     
     // Check if it's a spread (A3 format: width > height).
     // Often A4 is portrait (width < height).
-    // If it's a spread, split it vertically into two pages.
-    if (width > height) {
-      const [page1] = await flattenedPdf.copyPages(sourcePdf, [i]);
-      const [page2] = await flattenedPdf.copyPages(sourcePdf, [i]);
+    // Allow a small tolerance just in case
+    if (width > height + 10) {
+      // It's a spread, split it
+      const embeddedSpread = await flattenedPdf.embedPage(page);
+      const halfWidth = width / 2;
       
-      const box = page.getCropBox() || page.getMediaBox();
+      const leftPage = flattenedPdf.addPage([halfWidth, height]);
+      leftPage.drawPage(embeddedSpread, { x: 0, y: 0 }); // Left half is visible
       
-      page1.setCropBox(box.x, box.y, box.width / 2, box.height);
-      flattenedPdf.addPage(page1);
-      
-      page2.setCropBox(box.x + box.width / 2, box.y, box.width / 2, box.height);
-      flattenedPdf.addPage(page2);
+      const rightPage = flattenedPdf.addPage([halfWidth, height]);
+      rightPage.drawPage(embeddedSpread, { x: -halfWidth, y: 0 }); // Shift left to show right half
     } else {
+      // Normal A4 page
       const [copiedPage] = await flattenedPdf.copyPages(sourcePdf, [i]);
       flattenedPdf.addPage(copiedPage);
     }
+
+    if (onProgress) {
+        onProgress(Math.round(((i + 1) / pageCount) * 30)); // 30% for splitting
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
   
-  // Now we have the reading order of individual A4 pages. Reorganize for booklet:
-  const totalFlattened = flattenedPdf.getPageCount();
+  // 3. Save to bake the transformations
+  const readingOrderPdfBytes = await flattenedPdf.save();
+  const readingPdf = await PDFDocument.load(readingOrderPdfBytes);
+  const totalFlattened = readingPdf.getPageCount();
+  
+  // 4. Calculate booklet order
   const remainder = totalFlattened % 4;
   const paddingNeeded = remainder === 0 ? 0 : 4 - remainder;
-  
-  const bookletPdf = await PDFDocument.create();
   
   const pageRefs: (number | null)[] = [];
   for (let i = 0; i < totalFlattened; i++) {
@@ -529,49 +540,49 @@ export async function convertGraphicDesignToBooklet(
   const bookletOrder: (number | null)[] = [];
   
   for (let k = 1; k <= numSheets; k++) {
-    // Front of sheet k
     bookletOrder.push(pageRefs[totalWithPadding - 2 * (k - 1) - 1]); // Front Left
     bookletOrder.push(pageRefs[2 * (k - 1)]);                         // Front Right
     
-    // Back of sheet k
     bookletOrder.push(pageRefs[2 * (k - 1) + 1]);                     // Back Left
     bookletOrder.push(pageRefs[totalWithPadding - 2 * k + 1 - 1]);    // Back Right
   }
   
-  for (const refIdx of bookletOrder) {
-    if (refIdx === null) {
-      let w = 595.28;
-      let h = 841.89;
-      if (totalFlattened > 0) {
-        const { width, height } = flattenedPdf.getPage(0).getSize();
-        w = width;
-        h = height;
-      }
-      bookletPdf.addPage([w, h]);
-    } else {
-      const [copiedPage] = await bookletPdf.copyPages(flattenedPdf, [refIdx]);
-      bookletPdf.addPage(copiedPage);
-    }
+  // 5. Combine pairs side by side into the final A3 sheet layout
+  const finalPdf = await PDFDocument.create();
+  
+  let a4Width = 595.28;
+  let a4Height = 841.89;
+  if (totalFlattened > 0) {
+    const { width, height } = readingPdf.getPage(0).getSize();
+    a4Width = width;
+    a4Height = height;
   }
   
-  // Combine pairs side by side into the final A3 sheet layout
-  const finalPdf = await PDFDocument.create();
-  const bookletPageCount = bookletPdf.getPageCount();
-  
-  for (let i = 0; i < bookletPageCount; i += 2) {
-    const leftPageObj = bookletPdf.getPage(i);
-    const rightPageObj = bookletPdf.getPage(i + 1);
+  const finalSteps = Math.ceil(bookletOrder.length / 2);
+  for (let i = 0; i < bookletOrder.length; i += 2) {
+    const leftRef = bookletOrder[i];
+    const rightRef = bookletOrder[i + 1];
     
-    const embeddedLeft = await finalPdf.embedPage(leftPageObj);
-    const embeddedRight = await finalPdf.embedPage(rightPageObj);
+    const newSpread = finalPdf.addPage([a4Width * 2, a4Height]);
     
-    const w = embeddedLeft.width;
-    const h = embeddedLeft.height;
+    if (leftRef !== null) {
+      const leftSrcPage = readingPdf.getPage(leftRef);
+      const embeddedLeft = await finalPdf.embedPage(leftSrcPage);
+      newSpread.drawPage(embeddedLeft, { x: 0, y: 0 });
+    }
     
-    const newPage = finalPdf.addPage([w * 2, h]);
+    if (rightRef !== null) {
+      const rightSrcPage = readingPdf.getPage(rightRef);
+      const embeddedRight = await finalPdf.embedPage(rightSrcPage);
+      newSpread.drawPage(embeddedRight, { x: a4Width, y: 0 });
+    }
     
-    newPage.drawPage(embeddedLeft, { x: 0, y: 0 });
-    newPage.drawPage(embeddedRight, { x: w, y: 0 });
+    if (onProgress) {
+        // From 30% to 100% for final rendering and appending
+        const step = Math.floor(i / 2) + 1;
+        onProgress(30 + Math.round((step / finalSteps) * 70)); 
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
   
   return await finalPdf.save();

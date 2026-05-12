@@ -6,10 +6,11 @@ interface ProcessingPopupProps {
   isOpen: boolean;
   status: 'processing' | 'success' | 'error';
   message: string;
+  progress?: number;
   onClose?: () => void;
 }
 
-export function ProcessingPopup({ isOpen, status, message, onClose }: ProcessingPopupProps) {
+export function ProcessingPopup({ isOpen, status, message, progress, onClose }: ProcessingPopupProps) {
   if (!isOpen) return null;
 
   return (
@@ -41,11 +42,26 @@ export function ProcessingPopup({ isOpen, status, message, onClose }: Processing
             </div>
           )}
 
-          <div>
+          <div className="w-full">
             <h3 className="text-lg font-semibold text-slate-900">
               {status === 'processing' ? 'Elaborazione...' : status === 'success' ? 'Completato!' : 'Errore'}
             </h3>
             <p className="text-sm text-slate-500 mt-1">{message}</p>
+            
+            {status === 'processing' && progress !== undefined && (
+              <div className="mt-4 w-full">
+                <div className="flex justify-between text-xs text-slate-500 mb-1">
+                  <span>Avanzamento</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {status !== 'processing' && onClose && (
